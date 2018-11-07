@@ -34,13 +34,49 @@ from skimage.filters import sobel
 from scipy import ndimage as ndi
 from skimage.feature import peak_local_max
 
-
+from joblib import Parallel, delayed
+import multiprocessing
 
 #from skimage.segmentation import watershed
 
 
 #import matplotlib
 #matplotlib.use('Agg')
+
+def build_pixet2(i):
+    neigh_WSS_temp = []
+    WSS_coords = regions_WSS_cleaned[i]
+    l = setdiff2d(WSS_coords, sure_coords)
+    if (len(l) != 0):
+        print(i)
+        pixet_2_list.append(l) #(l.tolist()) each (x,y) coord is one cell in the .csv, else l is the np.ndarray and is written as so
+        data_WSS[i, :] = image_tensor[l[:, 0], l[:, 1], :].sum(axis=0)
+        WSS_Sizes[i] = len(l)
+        WSS_dataCentroids[i, :] = np.mean(l,axis=0)
+        WSS_dataScaleSize[i, :] = data_WSS[i, :] / WSS_Sizes[i]
+        WSS_dataScaleCentroids[i, :] = WSS_dataCentroids[i, :] / WSS_Sizes[i]
+    else:
+        pixet_2_list.append(fill_in)
+
+
+    len_coords = len(WSS_coords)
+    for j in range(len_coords):
+        # print(j)
+        neigh_WSS_temp.extend(cell_neighbors(label_sp2, WSS_coords[j, 0], WSS_coords[j, 1], dp))
+        nt = np.unique(neigh_WSS_temp) - 1  # no idea why the cell labels are incremented by 1, check the cell_neighbourhood logic, for now I am just decrementing this
+        nt = [y for y in nt if y != -1]  # remove -1. This means cell 0. a) real cell 0 will never be a neighbour b) why it is even there for every cell??
+        nt = [y for y in nt if y != i]  # artefact of cell neighbourhppd function. Every cell is a neighbour of itself. So I remove this. But again the -1 from before needs to be tackled.
+    neighbourhood_WSS_list.append(nt)
+
+def assign_cell_id(i, r_sp2):
+    print("i "+str(i))
+    for j, r in enumerate(regions_revised):
+        l = intersect2d(regions_WSS_cleaned[i], r['coords'])
+        if (len(l)!=0):
+            #print('j'+str(j))
+            WSS_cell_label_assgn[0,i]=labelVec[j]
+            #print(labelVec[j])
+            break
 
 t1 = time.time()
 
@@ -464,30 +500,35 @@ for p in range(0,points):
 
     print('building pixet2')
     #for i, regions_i in enumerate(regions_sp2):
-    for i in range(1,sp2_segments):
-        neigh_WSS_temp = []
-        WSS_coords = regions_WSS_cleaned[i]
-        l = setdiff2d(WSS_coords, sure_coords)
-        if (len(l) != 0):
-            print(i)
-            pixet_2_list.append(l) #(l.tolist()) each (x,y) coord is one cell in the .csv, else l is the np.ndarray and is written as so
-            data_WSS[i, :] = image_tensor[l[:, 0], l[:, 1], :].sum(axis=0)
-            WSS_Sizes[i] = len(l)
-            WSS_dataCentroids[i, :] = np.mean(l,axis=0)
-            WSS_dataScaleSize[i, :] = data_WSS[i, :] / WSS_Sizes[i]
-            WSS_dataScaleCentroids[i, :] = WSS_dataCentroids[i, :] / WSS_Sizes[i]
-        else:
-            pixet_2_list.append(fill_in)
+
+    inputs = range(1,sp2_segments)
+    num_cores = multiprocessing.cpu_count()
+    Parallel(n_jobs=num_cores)(delayed(build_pixet2)(i) for i in inputs)
+
+    # for i in range(1,sp2_segments):
+    #     neigh_WSS_temp = []
+    #     WSS_coords = regions_WSS_cleaned[i]
+    #     l = setdiff2d(WSS_coords, sure_coords)
+    #     if (len(l) != 0):
+    #         print(i)
+    #         pixet_2_list.append(l) #(l.tolist()) each (x,y) coord is one cell in the .csv, else l is the np.ndarray and is written as so
+    #         data_WSS[i, :] = image_tensor[l[:, 0], l[:, 1], :].sum(axis=0)
+    #         WSS_Sizes[i] = len(l)
+    #         WSS_dataCentroids[i, :] = np.mean(l,axis=0)
+    #         WSS_dataScaleSize[i, :] = data_WSS[i, :] / WSS_Sizes[i]
+    #         WSS_dataScaleCentroids[i, :] = WSS_dataCentroids[i, :] / WSS_Sizes[i]
+    #     else:
+    #         pixet_2_list.append(fill_in)
 
 
-        len_coords = len(WSS_coords)
-        for j in range(len_coords):
-            # print(j)
-            neigh_WSS_temp.extend(cell_neighbors(label_sp2, WSS_coords[j, 0], WSS_coords[j, 1], dp))
-            nt = np.unique(neigh_WSS_temp) - 1  # no idea why the cell labels are incremented by 1, check the cell_neighbourhood logic, for now I am just decrementing this
-            nt = [y for y in nt if y != -1]  # remove -1. This means cell 0. a) real cell 0 will never be a neighbour b) why it is even there for every cell??
-            nt = [y for y in nt if y != i]  # artefact of cell neighbourhppd function. Every cell is a neighbour of itself. So I remove this. But again the -1 from before needs to be tackled.
-        neighbourhood_WSS_list.append(nt)
+    #     len_coords = len(WSS_coords)
+    #     for j in range(len_coords):
+    #         # print(j)
+    #         neigh_WSS_temp.extend(cell_neighbors(label_sp2, WSS_coords[j, 0], WSS_coords[j, 1], dp))
+    #         nt = np.unique(neigh_WSS_temp) - 1  # no idea why the cell labels are incremented by 1, check the cell_neighbourhood logic, for now I am just decrementing this
+    #         nt = [y for y in nt if y != -1]  # remove -1. This means cell 0. a) real cell 0 will never be a neighbour b) why it is even there for every cell??
+    #         nt = [y for y in nt if y != i]  # artefact of cell neighbourhppd function. Every cell is a neighbour of itself. So I remove this. But again the -1 from before needs to be tackled.
+    #     neighbourhood_WSS_list.append(nt)
 
     end_neigh = time.time()
     print('Time to get superpixet2 and its neighbours for cells: ' + str(end_neigh - start_neigh))
@@ -533,15 +574,19 @@ for p in range(0,points):
     #assign a celllabel to WSS segments
     print('assigning cell id, if at all, to superpixet2')
     WSS_cell_label_assgn = np.ones([1, valid_segments])*-1
-    for i, r_sp2 in enumerate(regions_sp2_revised):
-        print("i "+str(i))
-        for j, r in enumerate(regions_revised):
-            l = intersect2d(regions_WSS_cleaned[i], r['coords'])
-            if (len(l)!=0):
-                #print('j'+str(j))
-                WSS_cell_label_assgn[0,i]=labelVec[j]
-                #print(labelVec[j])
-                break
+    inputs = enumerate(regions_sp2_revised)
+    num_cores = multiprocessing.cpu_count()
+    Parallel(n_jobs=num_cores)(delayed(assign_cell_id)(i, r_sp2) for i, r_sp2 in inputs)
+    
+    # for i, r_sp2 in enumerate(regions_sp2_revised):
+    #     print("i "+str(i))
+    #     for j, r in enumerate(regions_revised):
+    #         l = intersect2d(regions_WSS_cleaned[i], r['coords'])
+    #         if (len(l)!=0):
+    #             #print('j'+str(j))
+    #             WSS_cell_label_assgn[0,i]=labelVec[j]
+    #             #print(labelVec[j])
+    #             break
 
 
 
